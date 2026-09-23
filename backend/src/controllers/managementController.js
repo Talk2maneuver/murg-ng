@@ -2,8 +2,11 @@ const managementRepo = require('../repositories/managementRepository');
 const { success, error, forbidden } = require('../utils/responseUtils');
 
 // Server-side strict allowlists
+// NOTE: Do NOT add decommissioned paths here. The following were removed because
+// they have been replaced by the React application and now issue 302 redirects:
+//   /system/index.php, /system/branch.php, /system/staff.php,
+//   /system/cart.php, /system/customer.php (+ extensionless aliases)
 const ADMIN_ALLOWED_DESTINATIONS = [
-  '/system/index.php',
   '/system/expense.php',
   '/system/deposit.php',
   '/system/deposit-receipt.php',
@@ -18,15 +21,10 @@ const ADMIN_ALLOWED_DESTINATIONS = [
   '/system/weekly.php',
   '/system/invoice.php',
   '/system/track-stock.php',
-  '/system/branch.php',
-  '/system/staff.php',
   '/system/stocks.php',
-  '/system/cart.php',
-  '/system/customer.php',
   '/system/out.php',
   '/system/profile.php',
   // Extensionless aliases
-  '/system/index',
   '/system/expense',
   '/system/deposit',
   '/system/purchase',
@@ -38,17 +36,15 @@ const ADMIN_ALLOWED_DESTINATIONS = [
   '/system/weekly',
   '/system/invoice',
   '/system/track-stock',
-  '/system/branch',
-  '/system/staff',
   '/system/stocks',
-  '/system/cart',
-  '/system/customer',
   '/system/out',
   '/system/profile',
 ];
 
+// NOTE: Do NOT add decommissioned paths here. The following were removed because
+// they have been replaced by the React application and now issue 302 redirects:
+//   /sub/index.php, /sub/cart.php, /sub/customer.php (+ extensionless aliases)
 const STAFF_ALLOWED_DESTINATIONS = [
-  '/sub/index.php',
   '/sub/expense.php',
   '/sub/deposit.php',
   '/sub/purchase.php',
@@ -56,20 +52,15 @@ const STAFF_ALLOWED_DESTINATIONS = [
   '/sub/return.php',
   '/sub/report.php',
   '/sub/stocks.php',
-  '/sub/cart.php',
-  '/sub/customer.php',
   '/sub/out.php',
   '/sub/profile.php',
   // Extensionless aliases
-  '/sub/index',
   '/sub/expense',
   '/sub/deposit',
   '/sub/purchase',
   '/sub/return',
   '/sub/report',
   '/sub/stocks',
-  '/sub/cart',
-  '/sub/customer',
   '/sub/out',
   '/sub/profile',
 ];

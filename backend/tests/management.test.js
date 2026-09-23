@@ -284,10 +284,21 @@ async function runManagementTests() {
 
     // -------------------------------------------------------------
     // 8. Direct XAMPP Legacy Entry Point Compatibility
+    //    POST-DECOMMISSION: /murg/index.php now issues a 302 redirect
+    //    to the React login page (http://localhost:5173/login).
+    //    The old HTML login form has been replaced by the React LoginPage.
+    //    followRedirects=false so we can assert the 302 itself fires.
     // -------------------------------------------------------------
     console.log('\n--- Section 7: Direct XAMPP Entry Point Compatibility ---');
-    const directLegacyLogin = await apacheRequest('/murg/index.php', null, true);
-    assert(directLegacyLogin.status === 200, 'Direct XAMPP login page /murg/index.php remains functional (200 OK)');
+    const directLegacyLogin = await apacheRequest('/murg/index.php', null, false);
+    const legacyLoginStatus = directLegacyLogin.status;
+    const legacyLoginLocation = directLegacyLogin.headers && directLegacyLogin.headers.location || '';
+    // After decommissioning, Apache first 301s to /murg/index (canonical URL),
+    // then our PHP issues 302 → React. Either way, this endpoint must redirect.
+    const legacyLoginRedirects = (legacyLoginStatus === 301 || legacyLoginStatus === 302);
+    assert(legacyLoginRedirects, `Decommissioned /murg/index.php issues a redirect (got HTTP ${legacyLoginStatus})`);
+    const pointsToReact = legacyLoginLocation.includes('/murg/index') || legacyLoginLocation.includes('/login');
+    assert(pointsToReact, `Redirect location points toward React login (got: ${legacyLoginLocation})`);
 
     console.log('\n=============================================================');
     console.log(`MANAGEMENT TEST SUMMARY: ${passed} PASSED, ${failed} FAILED`);
