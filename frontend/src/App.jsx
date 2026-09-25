@@ -3,10 +3,12 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/useAuthStore';
 import DashboardLayout from './layouts/DashboardLayout';
 import LoginPage from './pages/LoginPage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import DashboardPage from './pages/DashboardPage';
 import POSTerminalPage from './pages/POSTerminalPage';
 import StockPage from './pages/StockPage';
 import ShipmentsPage from './pages/ShipmentsPage';
+import GoodsRequestsPage from './pages/GoodsRequestsPage';
 import CustomersPage from './pages/CustomersPage';
 import StaffPage from './pages/StaffPage';
 import BranchesPage from './pages/BranchesPage';
@@ -31,6 +33,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
         <Route
           path="/"
@@ -44,6 +47,7 @@ export default function App() {
           <Route path="pos" element={<POSTerminalPage />} />
           <Route path="stock" element={<StockPage />} />
           <Route path="shipments" element={<ShipmentsPage />} />
+          <Route path="goods-requests" element={<GoodsRequestsPage />} />
           <Route path="customers" element={<CustomersPage />} />
           <Route
             path="management"

@@ -7,7 +7,15 @@ const {
   requireAdminPriceControl,
 } = require('../middleware/auth');
 
+// All stock routes require authentication
 router.use(authenticate);
+
+// ─── Global catalog search (authenticate only, NO branch scope) ────────────
+// Returns distinct product names from ALL branches.
+// Used by the Goods Request form so staff can search the entire product catalog.
+router.get('/catalog', stockController.catalogSearch);
+
+// ─── Branch-scoped routes (authenticate + requireBranchScope) ─────────────
 router.use(requireBranchScope);
 
 router.get('/', stockController.list);

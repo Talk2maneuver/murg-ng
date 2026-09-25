@@ -14,6 +14,7 @@ import {
   AlertCircle,
   X,
   CheckCircle2,
+  Printer,
 } from 'lucide-react';
 
 export default function StockPage() {
@@ -26,6 +27,12 @@ export default function StockPage() {
   const [search, setSearch] = useState('');
   const [selectedStore, setSelectedStore] = useState('');
   const [loading, setLoading] = useState(false);
+  const [expandedDates, setExpandedDates] = useState(new Set());
+  const [movementOffset, setMovementOffset] = useState(0);
+  const [hasMoreMovements, setHasMoreMovements] = useState(false);
+  const [receiptModalOpen, setReceiptModalOpen] = useState(false);
+  const [receiptData, setReceiptData] = useState(null);
+  const [receiptLoading, setReceiptLoading] = useState(false);
 
   // Price Modal State (Admin Only)
   const [priceModalOpen, setPriceModalOpen] = useState(false);
@@ -54,7 +61,8 @@ export default function StockPage() {
       fetchStores();
       fetchStocks();
       if (activeTab === 'movements') {
-        fetchMovements();
+        setMovementOffset(0);
+        fetchMovements({ reset: true });
       }
     }
   }, [activeBranch, selectedStore, activeTab]);
@@ -83,12 +91,112 @@ export default function StockPage() {
     }
   };
 
-  const fetchMovements = async () => {
+  const fetchMovements = async ({ reset = false } = {}) => {
     try {
-      const res = await api.get(`/stocks/movements?branchId=${activeBranch}`);
-      setMovements(res.data.data || []);
+      const offset = reset ? 0 : movementOffset;
+      const res = await api.get(`/stocks/movements?branchId=${activeBranch}&limit=500&offset=${offset}`);
+      const nextMovements = res.data.data || [];
+      setMovements(prev => reset ? nextMovements : [...prev, ...nextMovements]);
+      setMovementOffset(offset + nextMovements.length);
+      setHasMoreMovements(nextMovements.length === 500);
     } catch (err) {
       console.error('[Stock] Error fetching movements:', err);
+    }
+  };
+
+  const loadMoreMovements = () => fetchMovements();
+
+  const toggleDateExpansion = (dateStr) => {
+    setExpandedDates(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(dateStr)) {
+        newSet.delete(dateStr);
+      } else {
+        newSet.add(dateStr);
+      }
+      return newSet;
+    });
+  };
+
+  const groupMovementsByDate = (movements) => {
+    const grouped = {};
+    movements.forEach(m => {
+      const date = getBusinessDateKey(m.business_date || m.created_at, m.id);
+      if (!grouped[date]) {
+        grouped[date] = [];
+      }
+      grouped[date].push(m);
+    });
+    return grouped;
+  };
+
+  const parseBusinessDate = (value) => {
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime()) ? null : value;
+    }
+
+    if (typeof value !== 'string' || !value.trim()) return null;
+
+    const normalized = value.trim().replace(' ', 'T');
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(normalized);
+    const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
+    const parsed = new Date(
+      dateOnly
+        ? `${normalized}T00:00:00+01:00`
+        : hasTimezone
+          ? normalized
+          : `${normalized}+01:00`
+    );
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const getBusinessDateKey = (value, recordId) => {
+    const parsed = parseBusinessDate(value);
+    if (!parsed) {
+      if (import.meta.env.DEV) {
+        console.warn('[DATE_PARSE_WARNING]', {
+          source: 'Stock Movement Ledger',
+          field: 'business_date',
+          recordId,
+          reason: 'invalid_date',
+        });
+      }
+      return 'unavailable';
+    }
+
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Africa/Lagos',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(parsed);
+  };
+
+  const formatBusinessDate = (date) => {
+    if (date === 'unavailable') return 'Date unavailable';
+
+    const parsed = parseBusinessDate(date);
+    if (!parsed) return 'Date unavailable';
+
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Africa/Lagos',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    }).format(parsed);
+  };
+
+  const handleViewReceipt = async (orderID) => {
+    setReceiptLoading(true);
+    try {
+      const res = await api.get(`/sales/${orderID}/receipt?branchId=${activeBranch}`);
+      setReceiptData(res.data.data);
+      setReceiptModalOpen(true);
+    } catch (err) {
+      alert('Failed to load receipt. The transaction may not exist or you may not have access.');
+      console.error('[Stock] Error fetching receipt:', err);
+    } finally {
+      setReceiptLoading(false);
     }
   };
 
@@ -318,59 +426,126 @@ export default function StockPage() {
       {/* Stock Movements Ledger Tab */}
       {activeTab === 'movements' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
-                <th className="py-3 px-4">Date & Time</th>
-                <th className="py-3 px-4">Product</th>
-                <th className="py-3 px-4">Event Type</th>
-                <th className="py-3 px-4 text-right">Change</th>
-                <th className="py-3 px-4 text-right">Before $\to$ After</th>
-                <th className="py-3 px-4">Performed By</th>
-                <th className="py-3 px-4">Notes</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 font-mono">
-              {movements.map((m) => (
-                <tr key={m.id} className="hover:bg-slate-50/70">
-                  <td className="py-2.5 px-4 text-slate-500 font-sans">
-                    {new Date(m.created_at).toLocaleString()}
-                  </td>
-                  <td className="py-2.5 px-4 font-bold text-slate-900 font-sans">{m.product_name}</td>
-                  <td className="py-2.5 px-4 font-sans">
-                    <span
-                      className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                        m.movement_type.includes('IN')
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-rose-100 text-rose-800'
-                      }`}
-                    >
-                      {m.movement_type}
-                    </span>
-                  </td>
-                  <td
-                    className={`py-2.5 px-4 text-right font-bold ${
-                      parseFloat(m.quantity_change) > 0 ? 'text-emerald-600' : 'text-rose-600'
-                    }`}
+          {Object.keys(groupMovementsByDate(movements)).length === 0 ? (
+            <div className="py-8 text-center text-slate-400 font-sans">
+              No movement records logged yet.
+            </div>
+          ) : (
+            Object.entries(groupMovementsByDate(movements)).map(([date, dateMovements]) => {
+              const saleMovements = dateMovements.filter(m => m.movement_type === 'STOCK_OUT_SALE');
+              const saleOrderIds = new Set(saleMovements.map(m => m.reference_id));
+              const debtOrderIds = new Set(saleMovements.filter(m => m.is_credit).map(m => m.reference_id));
+              const salesCount = saleOrderIds.size;
+              const totalTransactions = saleOrderIds.size;
+              const isExpanded = expandedDates.has(date);
+
+              return (
+                <div key={date} className="border-b border-slate-200 last:border-b-0">
+                  {/* Date Group Header */}
+                  <button
+                    onClick={() => toggleDateExpansion(date)}
+                    className="w-full bg-slate-50 hover:bg-slate-100 transition-colors py-3 px-4 flex items-center justify-between text-left cursor-pointer"
                   >
-                    {parseFloat(m.quantity_change) > 0 ? `+${m.quantity_change}` : m.quantity_change}
-                  </td>
-                  <td className="py-2.5 px-4 text-right text-slate-500">
-                    {m.quantity_before} $\to$ {m.quantity_after}
-                  </td>
-                  <td className="py-2.5 px-4 text-slate-600 font-sans">{m.performed_by_name}</td>
-                  <td className="py-2.5 px-4 text-slate-500 font-sans truncate max-w-xs">{m.notes}</td>
-                </tr>
-              ))}
-              {movements.length === 0 && (
-                <tr>
-                  <td colSpan="7" className="py-8 text-center text-slate-400 font-sans">
-                    No movement records logged yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-bold text-slate-900">{formatBusinessDate(date)}</span>
+                      <span className="text-xs text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full">
+                        {totalTransactions} transactions
+                      </span>
+                      {salesCount > 0 && (
+                        <span className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+                          {salesCount - debtOrderIds.size} sales
+                        </span>
+                      )}
+                      {debtOrderIds.size > 0 && (
+                        <span className="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
+                          {debtOrderIds.size} debt sales
+                        </span>
+                      )}
+                    </div>
+                    <span className={`text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
+                      ▼
+                    </span>
+                  </button>
+
+                  {/* Expanded Movements */}
+                  {isExpanded && (
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
+                          <th className="py-2 px-4">Time</th>
+                          <th className="py-2 px-4">Product</th>
+                          <th className="py-2 px-4">Event Type</th>
+                          <th className="py-2 px-4 text-right">Change</th>
+                          <th className="py-2 px-4 text-right">Before → After</th>
+                          <th className="py-2 px-4">Performed By</th>
+                          <th className="py-2 px-4">Notes</th>
+                        <th className="py-2 px-4">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-mono">
+                        {dateMovements.map((m) => (
+                          <tr key={m.id} className="hover:bg-slate-50/70">
+                            <td className="py-2 px-4 text-slate-500 font-sans">
+                              {m.business_time || new Date(m.created_at).toLocaleTimeString('en-US', {
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </td>
+                            <td className="py-2 px-4 font-bold text-slate-900 font-sans">{m.product_name}</td>
+                            <td className="py-2 px-4 font-sans">
+                              <span
+                                className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                  m.movement_type.includes('IN')
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-rose-100 text-rose-800'
+                                }`}
+                              >
+                                {m.movement_type}
+                              </span>
+                            </td>
+                            <td
+                              className={`py-2 px-4 text-right font-bold ${
+                                parseFloat(m.quantity_change) > 0 ? 'text-emerald-600' : 'text-rose-600'
+                              }`}
+                            >
+                              {parseFloat(m.quantity_change) > 0 ? `+${m.quantity_change}` : m.quantity_change}
+                            </td>
+                            <td className="py-2 px-4 text-right text-slate-500">
+                              {m.quantity_before} → {m.quantity_after}
+                            </td>
+                            <td className="py-2 px-4 text-slate-600 font-sans">{m.performed_by_name}</td>
+                            <td className="py-2 px-4 text-slate-500 font-sans truncate max-w-xs">{m.notes}</td>
+                            <td className="py-2 px-4">
+                              {m.movement_type === 'STOCK_OUT_SALE' && m.reference_type === 'orders' && (
+                                <button
+                                  onClick={() => handleViewReceipt(m.reference_id)}
+                                  disabled={receiptLoading}
+                                  className="text-[10px] font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 py-1 px-2 rounded cursor-pointer disabled:opacity-50"
+                                >
+                                  View Receipt
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              );
+            })
+          )}
+          {hasMoreMovements && (
+            <div className="border-t border-slate-200 p-3 text-center">
+              <button
+                type="button"
+                onClick={loadMoreMovements}
+                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+              >
+                Load older movements
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -652,6 +827,117 @@ export default function StockPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Receipt Modal for Historical Transactions */}
+      {receiptModalOpen && receiptData && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl relative max-h-[90vh] flex flex-col">
+            <button
+              onClick={() => setReceiptModalOpen(false)}
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
+              <Printer className="w-5 h-5 text-indigo-600" />
+              <span>Historical Receipt</span>
+            </h3>
+
+            {/* Thermal Receipt Content Container */}
+            <div
+              id="thermal-receipt"
+              className="border border-slate-200 p-4 rounded-lg bg-slate-50 font-mono text-xs overflow-auto flex-1 text-slate-900"
+            >
+              {/* Header */}
+              <div className="text-center pb-3 border-b border-dashed border-slate-400 mb-3">
+                <h4 className="font-black text-sm uppercase m-0">MURG TEXTILE ENTERPRISES</h4>
+                <p className="text-[11px] font-bold text-slate-700 m-0 mt-0.5">{receiptData.branch.name}</p>
+                <p className="text-[10px] text-slate-600 m-0">{receiptData.branch.address}</p>
+                <p className="text-[10px] text-slate-600 m-0">Tel: {receiptData.branch.phone || '08025493838'}</p>
+              </div>
+
+              {/* Meta */}
+              <div className="space-y-0.5 text-[11px] mb-3 pb-2 border-b border-dashed border-slate-400">
+                <div className="flex justify-between">
+                  <span>Receipt No:</span>
+                  <span className="font-bold">#{receiptData.order.orderID}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Date:</span>
+                  <span>{new Date(receiptData.order.creation).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Cashier:</span>
+                  <span>{receiptData.order.staff}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Customer:</span>
+                  <span>{receiptData.order.buyer_name}</span>
+                </div>
+              </div>
+
+              {/* Items Table */}
+              <div className="space-y-1 mb-3 pb-2 border-b border-dashed border-slate-400">
+                {receiptData.items.map((item, idx) => (
+                  <div key={idx} className="flex justify-between text-[11px]">
+                    <span className="truncate pr-2">
+                      {item.item} x{item.quantity}
+                    </span>
+                    <span className="font-semibold">₦{item.subtotal.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Totals */}
+              <div className="space-y-1 text-[11px] pb-3 border-b border-dashed border-slate-400">
+                {receiptData.order.discount > 0 && (
+                  <div className="flex justify-between text-slate-600">
+                    <span>Discount:</span>
+                    <span>-₦{receiptData.order.discount.toLocaleString()}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-black text-xs pt-1">
+                  <span>TOTAL PAID:</span>
+                  <span>₦{receiptData.order.amount_paid.toLocaleString()}</span>
+                </div>
+              </div>
+
+              {/* Payment methods */}
+              <div className="pt-2 text-[10px] text-slate-600 space-y-0.5">
+                {receiptData.order.cash > 0 && <p className="m-0">Cash: ₦{receiptData.order.cash.toLocaleString()}</p>}
+                {receiptData.order.pos > 0 && <p className="m-0">POS Card: ₦{receiptData.order.pos.toLocaleString()}</p>}
+                {receiptData.order.transfer > 0 && (
+                  <p className="m-0">
+                    Transfer: ₦{receiptData.order.transfer.toLocaleString()} ({receiptData.order.bank_name || 'Bank'})
+                  </p>
+                )}
+              </div>
+
+              <div className="text-center pt-4 text-[10px] text-slate-500">
+                <p className="m-0">Thank you for your business!</p>
+                <p className="m-0 mt-1">REPRINT - Historical Record</p>
+              </div>
+            </div>
+
+            <div className="pt-4 flex gap-2">
+              <button
+                onClick={() => window.print()}
+                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-lg text-xs flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Print Receipt</span>
+              </button>
+              <button
+                onClick={() => setReceiptModalOpen(false)}
+                className="px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

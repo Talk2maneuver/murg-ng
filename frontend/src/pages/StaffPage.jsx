@@ -14,6 +14,7 @@ import {
   Mail,
   Phone,
 } from 'lucide-react';
+import PasswordInput from '../components/PasswordInput';
 
 export default function StaffPage() {
   const { branches } = useBranchStore();
@@ -31,6 +32,13 @@ export default function StaffPage() {
   const [newBranch, setNewBranch] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [createSaving, setCreateSaving] = useState(false);
+
+  // Edit Modals
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [editEmailModalOpen, setEditEmailModalOpen] = useState(false);
+  const [editPasswordModalOpen, setEditPasswordModalOpen] = useState(false);
+  const [editEmail, setEditEmail] = useState('');
+  const [editPassword, setEditPassword] = useState('');
 
   useEffect(() => {
     fetchStaff();
@@ -87,6 +95,40 @@ export default function StaffPage() {
       fetchStaff();
     } catch (err) {
       alert(err.response?.data?.message || 'Failed to update status.');
+    }
+  };
+
+  const handleDeleteUser = async (staffMember) => {
+    if (staffMember.id === user.id) return alert('You cannot delete yourself.');
+    if (!window.confirm(`Are you sure you want to permanently delete user ${staffMember.name}? This action cannot be undone.`)) return;
+    try {
+      await api.delete(`/staff/${staffMember.id}`);
+      fetchStaff();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to delete user.');
+    }
+  };
+
+  const handleUpdateEmail = async (e) => {
+    e.preventDefault();
+    try {
+      await api.patch(`/staff/${selectedUser.id}/email`, { email: editEmail });
+      setEditEmailModalOpen(false);
+      fetchStaff();
+      alert('Email updated successfully!');
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to update email.');
+    }
+  };
+
+  const handleUpdatePassword = async (e) => {
+    e.preventDefault();
+    try {
+      await api.patch(`/staff/${selectedUser.id}/password`, { password: editPassword });
+      setEditPasswordModalOpen(false);
+      alert('Password updated successfully!');
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to update password.');
     }
   };
 
@@ -175,17 +217,43 @@ export default function StaffPage() {
                   </span>
                 </td>
                 <td className="py-3 px-4 text-center">
-                  {s.id !== user?.id && s.role !== 'Admin' && (
-                    <button
-                      onClick={() => handleToggleStatus(s)}
-                      className={`text-[11px] font-bold py-1 px-2.5 rounded cursor-pointer ${
-                        s.status === 1
-                          ? 'text-rose-600 hover:bg-rose-50'
-                          : 'text-emerald-600 hover:bg-emerald-50'
-                      }`}
-                    >
-                      {s.status === 1 ? 'Suspend' : 'Activate'}
-                    </button>
+                  {s.id !== user?.id && (
+                    <div className="flex items-center justify-center gap-2">
+                      {s.role !== 'Admin' && (
+                        <button
+                          onClick={() => handleToggleStatus(s)}
+                          className={`text-[11px] font-bold py-1 px-2.5 rounded cursor-pointer ${
+                            s.status === 1
+                              ? 'text-rose-600 hover:bg-rose-50'
+                              : 'text-emerald-600 hover:bg-emerald-50'
+                          }`}
+                        >
+                          {s.status === 1 ? 'Suspend' : 'Activate'}
+                        </button>
+                      )}
+                      {user?.isGlobalAdmin && (
+                        <>
+                          <button
+                            onClick={() => { setSelectedUser(s); setEditEmail(s.email); setEditEmailModalOpen(true); }}
+                            className="text-[11px] font-bold py-1 px-2.5 rounded text-blue-600 hover:bg-blue-50 cursor-pointer"
+                          >
+                            Edit Email
+                          </button>
+                          <button
+                            onClick={() => { setSelectedUser(s); setEditPassword(''); setEditPasswordModalOpen(true); }}
+                            className="text-[11px] font-bold py-1 px-2.5 rounded text-indigo-600 hover:bg-indigo-50 cursor-pointer"
+                          >
+                            Reset Pwd
+                          </button>
+                          <button
+                            onClick={() => handleDeleteUser(s)}
+                            className="text-[11px] font-bold py-1 px-2.5 rounded text-red-600 hover:bg-red-50 cursor-pointer"
+                          >
+                            Delete
+                          </button>
+                        </>
+                      )}
+                    </div>
                   )}
                 </td>
               </tr>
@@ -283,13 +351,12 @@ export default function StaffPage() {
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">Login Password *</label>
-                <input
-                  type="password"
-                  required
-                  placeholder="••••••••"
+                <PasswordInput
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs"
+                  required
+                  placeholder="••••••••"
+                  className="bg-slate-50"
                 />
               </div>
 
@@ -308,6 +375,46 @@ export default function StaffPage() {
                 >
                   Cancel
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Email Modal */}
+      {editEmailModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl relative">
+            <button onClick={() => setEditEmailModalOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 cursor-pointer"><X className="w-5 h-5" /></button>
+            <h3 className="text-base font-bold text-slate-900 mb-4">Edit User Email</h3>
+            <form onSubmit={handleUpdateEmail} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">New Email Address *</label>
+                <input type="email" required value={editEmail} onChange={(e) => setEditEmail(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs" />
+              </div>
+              <div className="pt-3 flex gap-2">
+                <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-lg text-xs cursor-pointer">Update Email</button>
+                <button type="button" onClick={() => setEditEmailModalOpen(false)} className="px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs cursor-pointer">Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Password Modal */}
+      {editPasswordModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl relative">
+            <button onClick={() => setEditPasswordModalOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 cursor-pointer"><X className="w-5 h-5" /></button>
+            <h3 className="text-base font-bold text-slate-900 mb-4">Reset User Password</h3>
+            <form onSubmit={handleUpdatePassword} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">New Password *</label>
+                <PasswordInput value={editPassword} onChange={(e) => setEditPassword(e.target.value)} required placeholder="••••••••" className="bg-slate-50" />
+              </div>
+              <div className="pt-3 flex gap-2">
+                <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-lg text-xs cursor-pointer">Update Password</button>
+                <button type="button" onClick={() => setEditPasswordModalOpen(false)} className="px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs cursor-pointer">Cancel</button>
               </div>
             </form>
           </div>

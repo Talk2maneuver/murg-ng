@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../store/useAuthStore';
 import { Lock, Mail, AlertCircle, ArrowRight } from 'lucide-react';
+import PasswordInput from '../components/PasswordInput';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -43,7 +44,7 @@ export default function LoginPage() {
               Email Address
             </label>
             <div className="relative">
-              <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
+              <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none z-10" />
               <input
                 type="email"
                 required
@@ -56,18 +57,24 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
-              Password
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold uppercase text-slate-600 m-0">
+                Password
+              </label>
+              <Link
+                to="/forgot-password"
+                className="text-xs text-indigo-600 font-semibold hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </div>
             <div className="relative">
-              <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
-              <input
-                type="password"
-                required
+              <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none z-10" />
+              <PasswordInput
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg py-2.5 pl-10 pr-3 text-sm text-slate-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                required
+                className="bg-slate-50 pl-10"
               />
             </div>
           </div>

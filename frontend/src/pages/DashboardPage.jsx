@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
 import { useBranchStore } from '../store/useBranchStore';
 import { useAuthStore } from '../store/useAuthStore';
+import { useBranchRealtime } from '../hooks/useBranchRealtime';
 import {
   TrendingUp,
   Package,
@@ -13,6 +14,7 @@ import {
   Clock,
   Building2,
   Users,
+  BarChart3,
 } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -20,26 +22,46 @@ export default function DashboardPage() {
   const { user } = useAuthStore();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [analytics, setAnalytics] = useState(null);
 
-  useEffect(() => {
-    if (activeBranch) {
-      fetchDashboard();
-    }
-  }, [activeBranch]);
-
-  const fetchDashboard = async () => {
-    setLoading(true);
+  const fetchDashboard = useCallback(async (showLoading = true) => {
+    if (!activeBranch) return;
+    if (showLoading) setLoading(true);
     try {
       const res = await api.get(`/branches/${activeBranch}/dashboard`);
       setData(res.data.data);
+      setError(null);
     } catch (err) {
       console.error('[Dashboard] Error fetching metrics:', err);
+      setError(err.response?.data?.message || 'Dashboard data could not be loaded.');
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
+    }
+  }, [activeBranch]);
+
+  useEffect(() => {
+    if (activeBranch) {
+      fetchDashboard(true);
+      fetchAnalytics();
+    }
+  }, [activeBranch, fetchDashboard]);
+
+  const fetchAnalytics = async () => {
+    try {
+      const res = await api.get(`/analytics/sales-activity?branchId=${activeBranch}`);
+      setAnalytics(res.data.data);
+    } catch (err) {
+      console.error('[Dashboard] Error fetching analytics:', err);
     }
   };
 
-  if (loading) {
+  const handleRealtimeUpdate = useCallback(() => {
+    fetchDashboard(false);
+  }, [fetchDashboard]);
+  const realtime = useBranchRealtime(activeBranch, handleRealtimeUpdate);
+
+  if (loading && !data) {
     return (
       <div className="flex items-center justify-center min-h-[300px]">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
@@ -52,6 +74,18 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+        <span className={`inline-flex items-center gap-2 ${realtime.status === 'connected' ? 'text-emerald-700' : 'text-amber-700'}`}>
+          <span className={`h-2 w-2 rounded-full ${realtime.status === 'connected' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+          {realtime.status === 'connected' ? 'Live updates connected' : 'Reconnecting live updates'}
+        </span>
+        {realtime.error && <span className="text-amber-700">{realtime.error}</span>}
+      </div>
+      {error && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {error}
+        </div>
+      )}
       {/* Top Banner */}
       <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-2xl p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -97,6 +131,63 @@ export default function DashboardPage() {
       </div>
 
       {/* Metrics Cards Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* DAS - Daily Active Sales */}
+        <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-semibold uppercase text-slate-500">DAS</span>
+              <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                <BarChart3 className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="text-xl font-bold text-slate-900">
+              {analytics?.das || 0}
+            </div>
+          </div>
+          <div className="text-[11px] text-slate-500 mt-2">
+            <span>Daily Active Sales</span>
+          </div>
+        </div>
+
+        {/* WAS - Weekly Active Sales */}
+        <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-semibold uppercase text-slate-500">WAS</span>
+              <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+                <BarChart3 className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="text-xl font-bold text-slate-900">
+              {analytics?.was || 0}
+            </div>
+          </div>
+          <div className="text-[11px] text-slate-500 mt-2">
+            <span>Weekly Active Sales</span>
+          </div>
+        </div>
+
+        {/* MAS - Monthly Active Sales */}
+        <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-semibold uppercase text-slate-500">MAS</span>
+              <div className="w-7 h-7 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center">
+                <BarChart3 className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="text-xl font-bold text-slate-900">
+              {analytics?.mas || 0}
+            </div>
+          </div>
+          <div className="text-[11px] text-slate-500 mt-2">
+            <span>Monthly Active Sales</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Original Metrics Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Today's Sales */}
         <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-xs flex flex-col justify-between">

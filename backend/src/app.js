@@ -12,6 +12,11 @@ const salesRoutes = require('./routes/salesRoutes');
 const shipmentRoutes = require('./routes/shipmentRoutes');
 const customerRoutes = require('./routes/customerRoutes');
 const managementRoutes = require('./routes/managementRoutes');
+const goodsRequestRoutes = require('./routes/goodsRequestRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
+const shipmentReceiptRoutes = require('./routes/shipmentReceiptRoutes');
+const realtimeRoutes = require('./routes/realtimeRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -44,6 +49,11 @@ app.use('/api/sales', salesRoutes);
 app.use('/api/shipments', shipmentRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/management', managementRoutes);
+app.use('/api/goods-requests', goodsRequestRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/shipment-receipts', shipmentReceiptRoutes);
+app.use('/api/realtime', realtimeRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // 404 Handler
 app.use((req, res) => {

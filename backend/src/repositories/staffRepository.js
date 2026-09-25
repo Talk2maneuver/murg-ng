@@ -107,15 +107,6 @@ class StaffRepository {
     return result.affectedRows > 0;
   }
 
-  /**
-   * Update staff password (bcrypt hash).
-   */
-  async updatePassword(id, bcryptHash) {
-    await db.query(
-      'UPDATE facility SET password_hash = ? WHERE id = ?',
-      [bcryptHash, id]
-    );
-  }
 
   /**
    * Check if an email already exists (for registration validation).
@@ -130,6 +121,32 @@ class StaffRepository {
     const [rows] = await db.query(sql, params);
     return rows.length > 0;
   }
-}
+
+  /**
+   * Delete a staff member.
+   */
+  async delete(id) {
+    const [result] = await db.query('DELETE FROM facility WHERE id = ?', [id]);
+    return result.affectedRows > 0;
+  }
+
+  /**
+   * Update staff email address.
+   */
+  async updateEmail(id, email) {
+    const [result] = await db.query('UPDATE facility SET email = ? WHERE id = ?', [email, id]);
+    return result.affectedRows > 0;
+  }
+
+  /**
+   * Update both bcrypt hash and legacy md5 hash.
+   */
+  async updatePassword(id, bcryptHash, legacyMd5Hash) {
+    const [result] = await db.query(
+      'UPDATE facility SET password_hash = ?, password = ? WHERE id = ?',
+      [bcryptHash, legacyMd5Hash, id]
+    );
+    return result.affectedRows > 0;
+  }}
 
 module.exports = new StaffRepository();

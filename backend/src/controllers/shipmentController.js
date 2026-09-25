@@ -1,4 +1,5 @@
 const shipmentRepo = require('../repositories/shipmentRepository');
+const { publishBranchEvent } = require('../services/realtimeService');
 const { success, created, error, notFound } = require('../utils/responseUtils');
 
 class ShipmentController {
@@ -75,6 +76,13 @@ class ShipmentController {
         userId: req.user.id,
       });
 
+      publishBranchEvent({
+        branchIds: [effectiveSource, destinationBranch],
+        type: 'branch-operation',
+        operation: 'SHIPMENT_DISPATCHED',
+        referenceId: result.shipmentId,
+      });
+
       return created(res, result, 'Shipment created and dispatched successfully');
     } catch (err) {
       if (err.message.includes('Insufficient stock')) {
@@ -101,6 +109,13 @@ class ShipmentController {
         receivedItems,
         userId: req.user.id,
         destinationBranch: effectiveDest,
+      });
+
+      publishBranchEvent({
+        branchIds: [shipment.source_branch, shipment.destination_branch],
+        type: 'branch-operation',
+        operation: 'SHIPMENT_RECEIVED',
+        referenceId: shipmentId,
       });
 
       return success(res, null, 'Shipment received and destination inventory updated successfully');

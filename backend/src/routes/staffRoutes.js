@@ -10,5 +10,8 @@ router.get('/:id', staffController.get);
 router.post('/', requireAdmin, staffController.create);
 router.patch('/:id/role', requireAdmin, staffController.updateRole);
 router.patch('/:id/status', requireAdmin, staffController.toggleStatus);
+router.patch('/:id/email', requireAdmin, staffController.updateEmail);
+router.patch('/:id/password', requireAdmin, staffController.updatePassword);
+router.delete('/:id', requireAdmin, staffController.deleteStaff);
 
 module.exports = router;

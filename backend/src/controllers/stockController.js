@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const stockRepo = require('../repositories/stockRepository');
+const { publishBranchEvent } = require('../services/realtimeService');
 const { success, created, error, notFound } = require('../utils/responseUtils');
 
 class StockController {
@@ -90,6 +91,13 @@ class StockController {
         console.error('[Audit Log Error]', logErr.message);
       }
 
+      publishBranchEvent({
+        branchIds: [facilityID],
+        type: 'branch-operation',
+        operation: 'STOCK_PRICING_UPDATED',
+        referenceId: stockId,
+      });
+
       return success(res, null, 'Product price updated successfully by Administrator');
     } catch (err) {
       next(err);
@@ -155,6 +163,13 @@ class StockController {
         console.error('[Audit Log Error]', logErr.message);
       }
 
+      publishBranchEvent({
+        branchIds: [facilityID],
+        type: 'branch-operation',
+        operation: 'STOCK_PRICING_UPDATED',
+        referenceId: stockId,
+      });
+
       return success(res, { price_per_yard: newPricePerYard, yards_per_belt: newYardsPerBelt }, 'Yard configuration updated successfully');
     } catch (err) {
       next(err);
@@ -201,6 +216,12 @@ class StockController {
         });
 
         await conn.commit();
+        publishBranchEvent({
+          branchIds: [facilityID],
+          type: 'branch-operation',
+          operation: 'STOCK_RECEIVED',
+          referenceId: result.purchaseHistoryId,
+        });
         return created(res, result, 'Stock receipt recorded successfully');
       } catch (err) {
         await conn.rollback();
@@ -219,8 +240,10 @@ class StockController {
       const stockId = req.query.stockId ? parseInt(req.query.stockId) : null;
       const startDate = req.query.startDate || null;
       const endDate = req.query.endDate || null;
+      const limit = req.query.limit ? parseInt(req.query.limit) : 500;
+      const offset = req.query.offset ? parseInt(req.query.offset) : 0;
 
-      const movements = await stockRepo.getMovements({ facilityID, stockId, startDate, endDate });
+      const movements = await stockRepo.getMovements({ facilityID, stockId, startDate, endDate, limit, offset });
       return success(res, movements);
     } catch (err) {
       next(err);
@@ -232,6 +255,23 @@ class StockController {
       const facilityID = req.branchId;
       const stores = await stockRepo.getStores(facilityID);
       return success(res, stores);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Global catalog search — not scoped to any branch.
+   * Returns distinct active product names from all facilities.
+   * Used by the Goods Request form so staff can see the entire product catalog.
+   * Authentication required; branch scope intentionally NOT applied.
+   */
+  async catalogSearch(req, res, next) {
+    try {
+      const search = req.query.search || null;
+      const limit = req.query.limit ? Math.min(parseInt(req.query.limit), 200) : 100;
+      const products = await stockRepo.globalCatalogSearch({ search, limit });
+      return success(res, products);
     } catch (err) {
       next(err);
     }

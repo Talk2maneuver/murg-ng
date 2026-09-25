@@ -53,11 +53,12 @@ class ManagementRepository {
       SELECT 
         COUNT(id) as total_shipments,
         COALESCE(SUM(CASE WHEN status = 'In Transit' THEN 1 ELSE 0 END), 0) as in_transit_count,
-        COALESCE(SUM(CASE WHEN status = 'Received' THEN 1 ELSE 0 END), 0) as received_count
+        COALESCE(SUM(CASE WHEN status = 'Received' AND DATE(received_at) = CURDATE() THEN 1 ELSE 0 END), 0) as received_today_count,
+        COALESCE(SUM(CASE WHEN status = 'Received' THEN 1 ELSE 0 END), 0) as received_total_count
       FROM shipments
     `);
 
-    // 5. Receivables / Outstand debts
+    // 5. Receivables / Outstanding debts
     const [debtStats] = await db.query(`
       SELECT 
         COUNT(id) as debtor_count,
@@ -66,10 +67,60 @@ class ManagementRepository {
       WHERE CAST(balance AS DECIMAL(15,2)) > 0
     `);
 
-    // 6. Recent audit log count
+    // 6. Today's sales across all branches
+    const [salesStats] = await db.query(`
+      SELECT 
+        COALESCE(SUM(t.order_net), 0) as today_sales_total,
+        COUNT(t.orderID) as today_orders_count
+      FROM (
+        SELECT 
+          orderID,
+          COALESCE(
+            NULLIF(MAX(CAST(net_total AS DECIMAL(15,2))), 0),
+            SUM(CAST(subtotal AS DECIMAL(15,2)))
+          ) as order_net
+        FROM orders
+        WHERE DATE(creation) = CURDATE()
+        GROUP BY orderID
+      ) as t
+    `);
+
+    // 7. Customer stats across all branches
+    const [customerStats] = await db.query(`
+      SELECT 
+        COUNT(id) as total_customers,
+        COUNT(DISTINCT CASE WHEN phone IS NOT NULL AND phone != '' AND phone != '0' THEN phone ELSE CAST(id AS CHAR) END) as unique_customers
+      FROM customers
+    `);
+
+    // 8. Recent audit log count
     const [auditCount] = await db.query('SELECT COUNT(id) as total_logs FROM audit_logs');
 
     return {
+      todaySales: {
+        total: parseFloat(salesStats[0]?.today_sales_total || 0),
+        count: parseInt(salesStats[0]?.today_orders_count || 0),
+      },
+      inventory: {
+        total_products: parseInt(stockStats[0]?.total_products || 0),
+        total_units: parseFloat(stockStats[0]?.total_units || 0),
+        total_cost_value: parseFloat(stockStats[0]?.total_cost_value || 0),
+        total_retail_value: parseFloat(stockStats[0]?.total_retail_value || 0),
+      },
+      customers: {
+        total: parseInt(customerStats[0]?.unique_customers || customerStats[0]?.total_customers || 0),
+        raw_total: parseInt(customerStats[0]?.total_customers || 0),
+      },
+      shipments: {
+        total: parseInt(shipmentStats[0]?.total_shipments || 0),
+        in_transit: parseInt(shipmentStats[0]?.in_transit_count || 0),
+        received_today: parseInt(shipmentStats[0]?.received_today_count || 0),
+        received: parseInt(shipmentStats[0]?.received_total_count || 0),
+      },
+      debts: {
+        debtor_count: parseInt(debtStats[0]?.debtor_count || 0),
+        total_balance: parseFloat(debtStats[0]?.total_debt_balance || 0),
+      },
       branches: {
         total: totalBranches,
         active: activeBranches,
@@ -79,21 +130,6 @@ class ManagementRepository {
         total: totalStaff,
         admins: adminCount,
         cashiers: cashierCount,
-      },
-      inventory: {
-        total_products: parseInt(stockStats[0]?.total_products || 0),
-        total_units: parseFloat(stockStats[0]?.total_units || 0),
-        total_cost_value: parseFloat(stockStats[0]?.total_cost_value || 0),
-        total_retail_value: parseFloat(stockStats[0]?.total_retail_value || 0),
-      },
-      shipments: {
-        total: parseInt(shipmentStats[0]?.total_shipments || 0),
-        in_transit: parseInt(shipmentStats[0]?.in_transit_count || 0),
-        received: parseInt(shipmentStats[0]?.received_count || 0),
-      },
-      debts: {
-        debtor_count: parseInt(debtStats[0]?.debtor_count || 0),
-        total_balance: parseFloat(debtStats[0]?.total_debt_balance || 0),
       },
       audit: {
         total_logs: parseInt(auditCount[0]?.total_logs || 0),

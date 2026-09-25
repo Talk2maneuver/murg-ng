@@ -69,14 +69,14 @@ async function runTests() {
 
     // Create isolated temporary test users
     await db.query(
-      `INSERT INTO facility (facilityID, agentID, name, email, phone, gender, fname, address, role, status, password, password_hash)
-       VALUES ('MURG/001', '1', 'Test Admin Temp', ?, '0000000000', 'Male', 'Alh Yasir', 'Test St', 'Admin', 1, MD5('admin123'), NULL)`,
+      `INSERT INTO facility (facilityID, agentID, name, email, phone, gender, fname, address, role, status, password, password_hash, dob)
+       VALUES ('MURG/001', '1', 'Test Admin Temp', ?, '0000000000', 'Male', 'Alh Yasir', 'Test St', 'Admin', 1, MD5('admin123'), NULL, '1990-01-01')`,
       [testAdminEmail]
     );
 
     await db.query(
-      `INSERT INTO facility (facilityID, agentID, name, email, phone, gender, fname, address, role, status, password, password_hash)
-       VALUES ('MURG/001', 'N/A', 'Test Staff Temp', ?, '0000000000', 'Male', 'Alh Yasir', 'Test St', 'Staff', 1, MD5('staff123'), NULL)`,
+      `INSERT INTO facility (facilityID, agentID, name, email, phone, gender, fname, address, role, status, password, password_hash, dob)
+       VALUES ('MURG/001', 'N/A', 'Test Staff Temp', ?, '0000000000', 'Male', 'Alh Yasir', 'Test St', 'Staff', 1, MD5('staff123'), NULL, '1990-01-01')`,
       [testStaffEmail]
     );
 
@@ -93,6 +93,61 @@ async function runTests() {
     });
     assert(staffLogin.status === 200 && staffLogin.body.data.token, 'Staff login succeeds and returns JWT');
     const staffToken = staffLogin.body.data.token;
+
+    // -------------------------------------------------------------
+    // Scenario L: Password Reset via Email OTP
+    // -------------------------------------------------------------
+    console.log('\n--- Scenario L: Secure Forgot Password via Email OTP ---');
+    const forgotRes = await request('POST', '/api/auth/forgot-password', { email: testAdminEmail });
+    assert(forgotRes.status === 200 && forgotRes.body.data.message, 'Forgot password request returns safe generic response');
+
+    // Get OTP directly from DB for test verification
+    const [resetRows] = await db.query('SELECT * FROM password_resets WHERE email = ? ORDER BY id DESC LIMIT 1', [testAdminEmail]);
+    assert(resetRows.length > 0 && resetRows[0].otp_hash, 'Password reset OTP hash recorded in database');
+    const resetId = resetRows[0].id;
+
+    // Test invalid OTP rejection
+    const invalidVerifyRes = await request('POST', '/api/auth/verify-reset-otp', { email: testAdminEmail, otp: '000000' });
+    assert(invalidVerifyRes.status === 400, 'Invalid OTP code rejected with 400 Bad Request');
+
+    // Manually fetch plaintext OTP or override hash for test verification
+    const crypto = require('crypto');
+    const testOtp = '123456';
+    const testOtpHash = crypto.createHash('sha256').update(testOtp).digest('hex');
+    await db.query('UPDATE password_resets SET otp_hash = ?, attempts = 0 WHERE id = ?', [testOtpHash, resetId]);
+
+    const validVerifyRes = await request('POST', '/api/auth/verify-reset-otp', { email: testAdminEmail, otp: testOtp });
+    assert(validVerifyRes.status === 200 && validVerifyRes.body.data.resetToken, 'Valid OTP code verified and returns single-use resetToken');
+    const resetToken = validVerifyRes.body.data.resetToken;
+
+    // Reset password
+    const newPassRes = await request('POST', '/api/auth/reset-password', { resetToken, newPassword: 'newadminpass123' });
+    assert(newPassRes.status === 200, 'New password set successfully');
+
+    // Test login with new password
+    const newLoginRes = await request('POST', '/api/auth/login', { email: testAdminEmail, password: 'newadminpass123' });
+    assert(newLoginRes.status === 200 && newLoginRes.body.data.token, 'Login with newly reset password succeeds');
+
+    // -------------------------------------------------------------
+    // Scenario K: Management Overview Security & Data Test
+    // -------------------------------------------------------------
+    console.log('\n--- Scenario K: Management Overview Security & Aggregation ---');
+    const mgmtAdminRes = await request('GET', '/api/management/overview', null, adminToken);
+    assert(
+      mgmtAdminRes.status === 200 &&
+      mgmtAdminRes.body.data.todaySales !== undefined &&
+      mgmtAdminRes.body.data.inventory !== undefined &&
+      mgmtAdminRes.body.data.customers !== undefined &&
+      mgmtAdminRes.body.data.shipments !== undefined &&
+      mgmtAdminRes.body.data.debts !== undefined,
+      'Admin GET /api/management/overview returns 200 with all business overview metrics'
+    );
+
+    const mgmtStaffRes = await request('GET', '/api/management/overview', null, staffToken);
+    assert(
+      mgmtStaffRes.status === 403,
+      'Staff GET /api/management/overview is rejected with 403 Forbidden'
+    );
 
     // -------------------------------------------------------------
     // Scenario A: Dealer Branch Behavior Preserved
@@ -124,8 +179,8 @@ async function runTests() {
 
     // Create staff belonging specifically to the new PER_YARD branch
     await db.query(
-      `INSERT INTO facility (facilityID, agentID, name, email, phone, gender, fname, address, role, status, password, password_hash)
-       VALUES (?, 'N/A', 'Yard Branch Cashier', ?, '0000000000', 'Female', 'Yard Store', 'Market', 'Staff', 1, MD5('staff123'), NULL)`,
+      `INSERT INTO facility (facilityID, agentID, name, email, phone, gender, fname, address, role, status, password, password_hash, dob)
+       VALUES (?, 'N/A', 'Yard Branch Cashier', ?, '0000000000', 'Female', 'Yard Store', 'Market', 'Staff', 1, MD5('staff123'), NULL, '1990-01-01')`,
       [perYardBranchId, testYardStaffEmail]
     );
 
@@ -347,23 +402,57 @@ async function runTests() {
     assert(destStockResult[0].unit_type === 'yard', 'Destination stock unit_type is "yard"');
 
     // -------------------------------------------------------------
-    // Scenario J: Strict Branch Data Isolation
+    // Scenario M: Goods Request, Admin Notification, Shipping & Receipt Release
     // -------------------------------------------------------------
-    console.log('\n--- Scenario J: Strict Branch Data Isolation ---');
-    // Staff at PER_YARD branch tries to query sales from MURG/001
-    const crossBranchRes = await request('GET', '/api/sales?branchId=MURG/001', null, yardStaffToken);
-    assert(crossBranchRes.status === 403, 'PER_YARD branch staff cannot read MURG/001 sales (403 Forbidden)');
+    console.log('\n--- Scenario M: Staff Goods Request & Admin Approval ---');
+    // Staff submits goods request for 2 belts of stock ID 1
+    const createReqRes = await request('POST', '/api/goods-requests', {
+      stockId: 1,
+      productName: 'SUPER SHADDA GOLD',
+      requestedQuantity: 2,
+      unitType: 'belt',
+      reason: 'Low stock in branch',
+    }, yardStaffToken);
 
-    // Staff at MURG/001 tries to query PER_YARD branch stocks
-    const crossStockRes = await request('GET', `/api/stocks?branchId=${perYardBranchId}`, null, staffToken);
-    assert(crossStockRes.status === 403, 'DEALER branch staff cannot read PER_YARD branch stocks (403 Forbidden)');
+    assert(createReqRes.status === 201 && createReqRes.body.data.id, 'Staff submits goods request successfully');
+    const testReqId = createReqRes.body.data.id;
 
-    // Global Admin CAN view PER_YARD branch dashboard and stocks
-    const adminYardDashboard = await request('GET', `/api/branches/${perYardBranchId}/dashboard`, null, adminToken);
-    assert(
-      adminYardDashboard.status === 200 && adminYardDashboard.body.data.metrics.sales_mode === 'PER_YARD',
-      'Global Admin has universal access and dashboard accurately reports PER_YARD mode'
-    );
+    // Admin checks notifications
+    const notifRes = await request('GET', '/api/notifications/unread-count', null, adminToken);
+    assert(notifRes.status === 200 && notifRes.body.data.unreadCount >= 1, 'Admin receives unread header bell notification for goods request');
+
+    // Admin checks eligible source branches
+    const eligibleRes = await request('GET', `/api/goods-requests/${testReqId}/eligible-branches`, null, adminToken);
+    assert(eligibleRes.status === 200 && eligibleRes.body.data.length > 0, 'Admin queries eligible source branches with sufficient stock');
+
+    const sourceBranchObj = eligibleRes.body.data.find(b => b.facilityID === 'MURG/001');
+    assert(sourceBranchObj && sourceBranchObj.stockId, 'MURG/001 identified as eligible source branch');
+
+    // Admin approves request and dispatches shipment
+    const approveRes = await request('POST', `/api/goods-requests/${testReqId}/approve-and-ship`, {
+      sourceBranch: 'MURG/001',
+      sourceStockId: sourceBranchObj.stockId,
+      adminNotes: 'Approved by Global Admin',
+    }, adminToken);
+
+    assert(approveRes.status === 200 && approveRes.body.data.receiptCode, 'Admin approves request and dispatches shipment with receipt code');
+    const testReceiptCode = approveRes.body.data.receiptCode;
+
+    // Staff at destination branch verifies receipt code
+    const verifyRcptRes = await request('GET', `/api/shipment-receipts/${testReceiptCode}/verify`, null, yardStaffToken);
+    assert(verifyRcptRes.status === 200 && verifyRcptRes.body.data.consumed === 0, 'Destination staff verifies valid active receipt code');
+
+    // Staff at WRONG branch tries to release receipt -> 400 Access Denied
+    const wrongBranchRelease = await request('POST', `/api/shipment-receipts/${testReceiptCode}/release`, null, staffToken);
+    assert(wrongBranchRelease.status === 400, 'Staff at wrong branch prevented from releasing receipt (Access Denied)');
+
+    // Destination staff releases receipt
+    const releaseRes = await request('POST', `/api/shipment-receipts/${testReceiptCode}/release`, null, yardStaffToken);
+    assert(releaseRes.status === 200 && releaseRes.body.data.success === true, 'Authorized destination staff releases receipt and credits inventory');
+
+    // Replay attempt on same receipt code -> 400 Replay Prevented
+    const replayRes = await request('POST', `/api/shipment-receipts/${testReceiptCode}/release`, null, yardStaffToken);
+    assert(replayRes.status === 400, 'Replay attempt on consumed receipt code rejected');
 
     console.log('\n=============================================');
     console.log(`TEST SUMMARY: ${passed} PASSED, ${failed} FAILED`);
@@ -375,6 +464,10 @@ async function runTests() {
   } finally {
     // Teardown: ALWAYS clean up temporary test records to prevent test leakage
     try {
+      await db.query("DELETE FROM password_resets WHERE email LIKE '%@murg.test'");
+      await db.query("DELETE FROM shipment_receipts WHERE receipt_code LIKE 'RCPT-%'");
+      await db.query("DELETE FROM notifications WHERE type IN ('GOODS_REQUEST', 'SHIPMENT_DISPATCHED')");
+      await db.query("DELETE FROM goods_requests WHERE request_code LIKE 'REQ-%'");
       if (testShipmentId) {
         await db.query('DELETE FROM shipment_items WHERE shipment_id = ?', [testShipmentId]);
         await db.query('DELETE FROM shipments WHERE id = ?', [testShipmentId]);

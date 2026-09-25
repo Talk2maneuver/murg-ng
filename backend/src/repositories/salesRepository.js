@@ -63,34 +63,55 @@ class SalesRepository {
 
   /**
    * Get receipt data (order + branch details) for printing.
+   * Enhanced to support historical receipt reconstruction from stock movements.
+   * Deterministically reconstructs complete receipt from persistent database records.
    */
-  async getReceiptData(orderID, facilityID) {
-    const [items] = await db.query(
-      `SELECT o.*, st.store_name
-       FROM orders o
-       LEFT JOIN stocks sk ON o.stockID = sk.id
-       LEFT JOIN stores st ON sk.store_id = st.id
-       WHERE o.orderID = ? AND o.facilityID = ?
-       ORDER BY o.id ASC`,
-      [orderID, facilityID]
-    );
+  async getReceiptData(orderID, facilityID = null) {
+    let sql = `
+      SELECT o.*, st.store_name, c.phone as customer_phone
+      FROM orders o
+      LEFT JOIN stocks sk ON o.stockID = sk.id
+      LEFT JOIN stores st ON sk.store_id = st.id
+      LEFT JOIN customers c ON o.customerID = c.id
+      WHERE o.orderID = ?
+    `;
+    const params = [orderID];
+    if (facilityID) {
+      sql += ' AND o.facilityID = ?';
+      params.push(facilityID);
+    }
+    sql += ' ORDER BY o.id ASC';
 
+    const [items] = await db.query(sql, params);
     if (!items.length) return null;
 
     const [branch] = await db.query(
       'SELECT name, address, phone, facilityID FROM branch WHERE facilityID = ?',
-      [facilityID]
+      [items[0].facilityID]
     );
 
+    const isCredit = items[0].payment === 'Credit' || items[0].status === 0;
+    const netTotal = parseFloat(items[0].net_total) || items.reduce((acc, i) => acc + parseFloat(i.subtotal), 0);
+    const amountPaid = parseFloat(items[0].amount_paid) || 0;
+    const debtBalance = isCredit ? Math.max(0, netTotal - amountPaid) : 0;
+
     return {
-      branch: branch[0] || {},
+      branch: branch[0] || { facilityID: items[0].facilityID, name: items[0].facilityID, address: '', phone: '' },
       order: {
         orderID: items[0].orderID,
+        facilityID: items[0].facilityID,
         payment: items[0].payment,
+        is_credit: isCredit,
+        status: items[0].status,
         buyer_name: items[0].buyer_name || items[0].customer_name || 'Retail Customer',
+        customer_name: items[0].customer_name || null,
+        customer_phone: items[0].customer_phone || null,
         staff: items[0].staff,
         creation: items[0].creation,
-        amount_paid: parseFloat(items[0].amount_paid),
+        net_total: netTotal,
+        amount_paid: amountPaid,
+        debt_amount: debtBalance,
+        change_given: parseFloat(items[0].change_given) || 0,
         discount: parseFloat(items[0].discount) || 0,
         cash: parseFloat(items[0].cash) || 0,
         pos: parseFloat(items[0].pos) || 0,
@@ -106,6 +127,46 @@ class SalesRepository {
         subtotal: parseFloat(i.subtotal),
       })),
     };
+  }
+
+  /**
+   * Get sales/debt sales for a specific date range with grouping capability.
+   * Used for daily ledger and historical receipt access.
+   */
+  async getSalesByDateRange({ facilityID, startDate, endDate, limit = 100, offset = 0 } = {}) {
+    let sql = `
+      SELECT 
+        orderID,
+        facilityID,
+        staff,
+        buyer_name,
+        customer_name,
+        customerID,
+        payment,
+        discount,
+        amount_paid,
+        net_total,
+        cash,
+        pos,
+        transfer,
+        bank_name,
+        status,
+        creation,
+        COUNT(*) as item_count,
+        SUM(CAST(subtotal AS DECIMAL(15,2))) as gross_total
+      FROM orders
+      WHERE facilityID = ?
+    `;
+    const params = [facilityID];
+
+    if (startDate) { sql += ' AND DATE(creation) >= ?'; params.push(startDate); }
+    if (endDate) { sql += ' AND DATE(creation) <= ?'; params.push(endDate); }
+
+    sql += ' GROUP BY orderID ORDER BY creation DESC LIMIT ? OFFSET ?';
+    params.push(limit, offset);
+
+    const [rows] = await db.query(sql, params);
+    return rows;
   }
 
   /**

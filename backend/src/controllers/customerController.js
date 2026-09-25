@@ -1,4 +1,5 @@
 const customerRepo = require('../repositories/customerRepository');
+const { publishBranchEvent } = require('../services/realtimeService');
 const { success, created, error, notFound } = require('../utils/responseUtils');
 
 class CustomerController {
@@ -44,6 +45,13 @@ class CustomerController {
         address: address ? address.trim() : '',
       });
 
+      publishBranchEvent({
+        branchIds: [facilityID],
+        type: 'branch-operation',
+        operation: 'CUSTOMER_CREATED',
+        referenceId: id,
+      });
+
       return created(res, { id }, 'Customer registered successfully');
     } catch (err) {
       next(err);
@@ -71,6 +79,13 @@ class CustomerController {
         paymentMethod,
         description: description ? description.trim() : '',
         processedByName: req.user.name,
+      });
+
+      publishBranchEvent({
+        branchIds: [facilityID],
+        type: 'branch-operation',
+        operation: 'DEBT_PAYMENT_RECORDED',
+        referenceId: result.depositId,
       });
 
       return created(res, result, 'Debt repayment deposit recorded successfully');

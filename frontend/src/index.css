@@ -8,12 +8,15 @@
   }
 }
 
-/* Thermal receipt printing specific styling (80mm width) */
+/* ─── Thermal POS receipt printing (80mm width) ─────────────────────────── */
 @media print {
   body * {
     visibility: hidden;
   }
-  #thermal-receipt, #thermal-receipt * {
+
+  /* POS thermal receipt */
+  #thermal-receipt,
+  #thermal-receipt * {
     visibility: visible;
   }
   #thermal-receipt {
@@ -25,8 +28,46 @@
     padding: 2mm !important;
     box-shadow: none !important;
   }
+
+  /* Goods approval receipt (A5 / letter) */
+  #approval-receipt-print,
+  #approval-receipt-print * {
+    visibility: visible;
+  }
+  #approval-receipt-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 148mm !important;
+    margin: 0 auto !important;
+    padding: 8mm !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: white !important;
+  }
+
+  /* Goods collection (final) receipt (A5 / letter) */
+  #collection-receipt-print,
+  #collection-receipt-print * {
+    visibility: visible;
+  }
+  #collection-receipt-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 148mm !important;
+    margin: 0 auto !important;
+    padding: 8mm !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: white !important;
+  }
+
   @page {
-    size: 80mm auto;
-    margin: 0;
+    size: A5;
+    margin: 10mm;
   }
 }
+

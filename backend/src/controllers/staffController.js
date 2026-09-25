@@ -94,6 +94,63 @@ class StaffController {
       next(err);
     }
   }
-}
 
+  async deleteStaff(req, res, next) {
+    try {
+      const staff = await staffRepo.findById(req.params.id);
+      if (!staff) return notFound(res, 'Staff member not found');
+      
+      // Do not allow admin to delete themselves
+      if (parseInt(staff.id) === parseInt(req.user.id)) {
+        return error(res, 'You cannot delete your own account', 400);
+      }
+
+      await staffRepo.delete(req.params.id);
+      return success(res, null, 'Staff member deleted successfully');
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async updateEmail(req, res, next) {
+    try {
+      const { email } = req.body;
+      if (!email || typeof email !== 'string' || !email.includes('@')) {
+        return error(res, 'A valid email is required', 400);
+      }
+
+      const cleanEmail = email.trim().toLowerCase();
+      const exists = await staffRepo.emailExists(cleanEmail, req.params.id);
+      if (exists) {
+        return error(res, 'Email address is already in use by another account', 409);
+      }
+
+      const updated = await staffRepo.updateEmail(req.params.id, cleanEmail);
+      if (!updated) return notFound(res, 'Staff member not found');
+
+      return success(res, null, 'Staff email updated successfully');
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async updatePassword(req, res, next) {
+    try {
+      const { password } = req.body;
+      if (!password || password.length < 6) {
+        return error(res, 'Password must be at least 6 characters long', 400);
+      }
+
+      const bcryptHash = await hashPassword(password);
+      const legacyHash = md5Hash(password);
+
+      const updated = await staffRepo.updatePassword(req.params.id, bcryptHash, legacyHash);
+      if (!updated) return notFound(res, 'Staff member not found');
+
+      return success(res, null, 'Staff password updated successfully');
+    } catch (err) {
+      next(err);
+    }
+  }
+}
 module.exports = new StaffController();

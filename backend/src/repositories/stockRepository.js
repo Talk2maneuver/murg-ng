@@ -196,13 +196,30 @@ class StockRepository {
 
   /**
    * Get stock movement history for a branch.
+   * Enriched with order metadata (credit vs normal sale, buyer, net total) for sales movements.
    */
-  async getMovements({ facilityID, stockId = null, startDate = null, endDate = null } = {}) {
+  async getMovements({ facilityID, stockId = null, startDate = null, endDate = null, limit = 500, offset = 0 } = {}) {
     let sql = `
-      SELECT sm.*, s.name as product_name, f.name as performed_by_name
+              SELECT sm.*,
+                 DATE_FORMAT(sm.created_at, '%Y-%m-%d') as business_date,
+              DATE_FORMAT(sm.created_at, '%H:%i') as business_time,
+                 s.name as product_name,
+             f.name as performed_by_name,
+             ord.payment as order_payment,
+             ord.status as order_status,
+             ord.customer_name as order_customer_name,
+             ord.buyer_name as order_buyer_name,
+             ord.net_total as order_net_total,
+             ord.amount_paid as order_amount_paid,
+             CASE WHEN ord.payment = 'Credit' OR ord.status = 0 THEN 1 ELSE 0 END as is_credit
       FROM stock_movements sm
       LEFT JOIN stocks s ON sm.stock_id = s.id
       LEFT JOIN facility f ON sm.performed_by = f.id
+      LEFT JOIN (
+        SELECT orderID, payment, status, customer_name, buyer_name, net_total, amount_paid
+        FROM orders
+        GROUP BY orderID
+      ) ord ON sm.reference_type = 'orders' AND sm.reference_id = ord.orderID
       WHERE sm.facilityID = ?
     `;
     const params = [facilityID];
@@ -211,7 +228,8 @@ class StockRepository {
     if (startDate) { sql += ' AND DATE(sm.created_at) >= ?'; params.push(startDate); }
     if (endDate) { sql += ' AND DATE(sm.created_at) <= ?'; params.push(endDate); }
 
-    sql += ' ORDER BY sm.created_at DESC LIMIT 200';
+    sql += ' ORDER BY sm.created_at DESC LIMIT ? OFFSET ?';
+    params.push(Math.min(Math.max(parseInt(limit) || 500, 1), 500), Math.max(parseInt(offset) || 0, 0));
     const [rows] = await db.query(sql, params);
     return rows;
   }
@@ -225,6 +243,35 @@ class StockRepository {
       [facilityID]
     );
     return rows;
+  }
+
+  /**
+   * Global catalog search — returns distinct product names across ALL branches.
+   * Intentionally has no facilityID filter.
+   * Used by the Goods Request form so staff can request any product in the system.
+   */
+  async globalCatalogSearch({ search = null, limit = 50 } = {}) {
+    let sql = `
+      SELECT DISTINCT name, unit_type, MIN(id) as representative_id
+      FROM stocks
+      WHERE status = 'active'
+    `;
+    const params = [];
+
+    if (search && search.trim()) {
+      sql += ' AND name LIKE ?';
+      params.push(`%${search.trim()}%`);
+    }
+
+    sql += ' GROUP BY name, unit_type ORDER BY name ASC LIMIT ?';
+    params.push(limit);
+
+    const [rows] = await db.query(sql, params);
+    return rows.map(r => ({
+      id: r.representative_id,
+      name: r.name,
+      unit_type: r.unit_type,
+    }));
   }
 }
 

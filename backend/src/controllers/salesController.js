@@ -1,10 +1,11 @@
 const salesRepo = require('../repositories/salesRepository');
-const { success, created, error, notFound } = require('../utils/responseUtils');
+const { publishBranchEvent } = require('../services/realtimeService');
+const { success, created, error, notFound, forbidden } = require('../utils/responseUtils');
 
 class SalesController {
   async list(req, res, next) {
     try {
-      const facilityID = req.branchId;
+      const facilityID = req.branchId || req.user.facilityID;
       const startDate = req.query.startDate || null;
       const endDate = req.query.endDate || null;
       const limit = req.query.limit ? parseInt(req.query.limit) : 50;
@@ -17,9 +18,24 @@ class SalesController {
     }
   }
 
+  async getSalesByDate(req, res, next) {
+    try {
+      const facilityID = req.branchId || req.user.facilityID;
+      const startDate = req.query.startDate || null;
+      const endDate = req.query.endDate || null;
+      const limit = req.query.limit ? parseInt(req.query.limit) : 100;
+      const offset = req.query.offset ? parseInt(req.query.offset) : 0;
+
+      const sales = await salesRepo.getSalesByDateRange({ facilityID, startDate, endDate, limit, offset });
+      return success(res, sales);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async getOrderItems(req, res, next) {
     try {
-      const facilityID = req.branchId;
+      const facilityID = req.branchId || req.user.facilityID;
       const orderID = req.params.orderId;
       const items = await salesRepo.findOrderItems(orderID, facilityID);
       return success(res, items);
@@ -30,12 +46,13 @@ class SalesController {
 
   async getReceipt(req, res, next) {
     try {
-      const facilityID = req.branchId;
       const orderID = req.params.orderId;
+      const facilityID = req.user.isGlobalAdmin ? null : req.user.facilityID;
       const receipt = await salesRepo.getReceiptData(orderID, facilityID);
       if (!receipt) {
         return notFound(res, 'Receipt not found');
       }
+
       return success(res, receipt);
     } catch (err) {
       next(err);
@@ -83,6 +100,13 @@ class SalesController {
           bankName: payment.bankName || null,
         },
         isCredit: Boolean(isCredit),
+      });
+
+      publishBranchEvent({
+        branchIds: [facilityID],
+        type: 'branch-operation',
+        operation: isCredit ? 'CREDIT_SALE_COMPLETED' : 'SALE_COMPLETED',
+        referenceId: result.orderID,
       });
 
       return created(res, result, 'Order completed successfully');
